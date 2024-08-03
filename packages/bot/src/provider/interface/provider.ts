@@ -281,9 +281,15 @@ abstract class ProviderClass<V = any> extends EventEmitterClass<ProviderEventTyp
      */
     public initAll = (
         port: number,
+        isSsl: boolean,
+        sslClientKey: string,
+        sslClientCert : string,
         opts: Pick<BotCtxMiddlewareOptions, 'blacklist' | 'state' | 'globalState'>
     ): void => {
         this.globalVendorArgs.port = port
+        this.isSsl = isSsl
+        this.sslClientKey = sslClientKey
+        this.sslClientCert = sslClientCert
         const methods: BotCtxMiddleware<ProviderClass> = {
             sendMessage: this.sendMessage,
             provider: this,
