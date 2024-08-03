@@ -715,8 +715,8 @@ class CoreClass<P extends ProviderClass = any, D extends MemoryDB = any> extends
     /**
      *
      */
-    httpServer = (port: number, isSsl: boolean, sslClientKey: string, sslClientCert : string, ) => {
-        this.provider.initAll(port, isSsl, sslClientKey, sslClientCert, {
+    httpServer = (port: number, isSsl?: boolean, sslClientKey?: string, sslClientCert? : string, ) => {
+        this.provider.initAll(port, {
             blacklist: this.dynamicBlacklist,
             state: (number: string): BotStateStandAlone => ({
                 getMyState: this.stateHandler.getMyState(number),
@@ -730,7 +730,7 @@ class CoreClass<P extends ProviderClass = any, D extends MemoryDB = any> extends
                 update: this.globalStateHandler.updateState(),
                 clear: this.globalStateHandler.clear(),
             }),
-        })
+        }, isSsl, sslClientKey, sslClientCert)
     }
 
     /**

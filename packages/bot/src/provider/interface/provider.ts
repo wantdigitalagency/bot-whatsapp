@@ -51,9 +51,9 @@ abstract class ProviderClass<V = any> extends EventEmitterClass<ProviderEventTyp
      */
     public idCtxBot: string = 'id-ctx-bot'
 
-    public isSsl?: boolean;
-    public sslClientKey?: string;
-    public sslClientCert?: string;
+    public isSsl : boolean = false;
+    public sslClientKey: string = '';
+    public sslClientCert: string = '';
 
     /**
      * Constructs a ProviderClass instance.
@@ -281,15 +281,15 @@ abstract class ProviderClass<V = any> extends EventEmitterClass<ProviderEventTyp
      */
     public initAll = (
         port: number,
-        isSsl: boolean,
-        sslClientKey: string,
-        sslClientCert : string,
-        opts: Pick<BotCtxMiddlewareOptions, 'blacklist' | 'state' | 'globalState'>
+        opts: Pick<BotCtxMiddlewareOptions, 'blacklist' | 'state' | 'globalState'>,
+        isSsl?: boolean,
+        sslClientKey?: string,
+        sslClientCert?: string,
     ): void => {
         this.globalVendorArgs.port = port
-        this.isSsl = isSsl
-        this.sslClientKey = sslClientKey
-        this.sslClientCert = sslClientCert
+        if(isSsl) this.isSsl
+        if(sslClientKey) this.sslClientKey
+        if(sslClientCert) this.sslClientCert
         const methods: BotCtxMiddleware<ProviderClass> = {
             sendMessage: this.sendMessage,
             provider: this,
