@@ -51,9 +51,9 @@ abstract class ProviderClass<V = any> extends EventEmitterClass<ProviderEventTyp
      */
     public idCtxBot: string = 'id-ctx-bot'
 
-    public isSsl: boolean = false
-    public sslClientKey: string = '';
-    public sslClientCert: string = '';
+    public isSsl?: boolean;
+    public sslClientKey?: string;
+    public sslClientCert?: string;
 
     /**
      * Constructs a ProviderClass instance.
@@ -152,7 +152,7 @@ abstract class ProviderClass<V = any> extends EventEmitterClass<ProviderEventTyp
         })
 
         const routes = this.getListRoutes(this.server).join('\n')
-        if(this.isSsl){
+        if(this.isSsl && this.sslClientKey && this.sslClientCert){
             const options = {
                 key: readFileSync(this.sslClientKey),
                 cert: readFileSync(this.sslClientCert)
