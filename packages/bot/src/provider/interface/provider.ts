@@ -7,6 +7,9 @@ import { EventEmitterClass } from '../../core/eventEmitterClass'
 import type { GlobalVendorArgs, BotCtxMiddlewareOptions, BotCtxMiddleware, ProviderEventTypes } from '../../types'
 import { removePlus, setEvent } from '../../utils/event'
 
+import { readFileSync } from 'fs'
+import { createServer } from 'https'
+
 export type Vendor<T = {}> = {} & T
 
 /**
@@ -47,6 +50,10 @@ abstract class ProviderClass<V = any> extends EventEmitterClass<ProviderEventTyp
      * @type {string}
      */
     public idCtxBot: string = 'id-ctx-bot'
+
+    public isSsl: boolean = false
+    public sslClientKey: string = '';
+    public sslClientCert: string = '';
 
     /**
      * Constructs a ProviderClass instance.
@@ -145,7 +152,18 @@ abstract class ProviderClass<V = any> extends EventEmitterClass<ProviderEventTyp
         })
 
         const routes = this.getListRoutes(this.server).join('\n')
-        this.server.listen(this.globalVendorArgs.port, cb(routes))
+        if(this.isSsl){
+            const options = {
+                key: readFileSync(this.sslClientKey),
+                cert: readFileSync(this.sslClientCert)
+            };
+            // Main app
+            const { handler } = this.server
+            // Mount Polka to HTTPS server
+            createServer(options, handler).listen(this.globalVendorArgs.port, cb(routes));
+        } else {
+            this.server.listen(this.globalVendorArgs.port, cb(routes))
+        }
     }
 
     /**
