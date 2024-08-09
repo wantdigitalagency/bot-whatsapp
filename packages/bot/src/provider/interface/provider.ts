@@ -160,7 +160,7 @@ abstract class ProviderClass<V = any> extends EventEmitterClass<ProviderEventTyp
             // Main app
             const { handler } = this.server
             // Mount Polka to HTTPS server
-            createServer(options, handler).listen(this.globalVendorArgs.port, cb(routes));
+            createServer(options, handler).listen(this.globalVendorArgs.port, () => cb(routes));
         } else {
             this.server.listen(this.globalVendorArgs.port, cb(routes))
         }
