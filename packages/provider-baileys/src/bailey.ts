@@ -13,7 +13,7 @@ import type polka from 'polka'
 import type { IStickerOptions } from 'wa-sticker-formatter'
 import { Sticker } from 'wa-sticker-formatter'
 
-import type {
+import {
     AnyMediaMessageContent,
     AnyMessageContent,
     BaileysEventMap,
@@ -21,8 +21,8 @@ import type {
     WAMessage,
     WASocket,
     MessageUpsertType,
-} from './baileyWrapper'
-import {
+    isJidGroup,
+    isJidBroadcast,
     makeInMemoryStore,
     DisconnectReason,
     downloadMediaMessage,
@@ -52,12 +52,16 @@ class BaileysProvider extends ProviderClass<WASocket> {
         port: 3000,
         timeRelease: 0, //21600000
         writeMyself: 'none',
+        groupsIgnore: false,
+        readStatus: false,
         experimentalStore: false,
+        experimentalSyncMessage: undefined,
     }
 
     store?: ReturnType<typeof makeInMemoryStore>
 
     private idsDuplicates = []
+    private mapSet = new Set()
 
     constructor(args: Partial<BaileyGlobalVendorArgs>) {
         super()
@@ -73,7 +77,7 @@ class BaileysProvider extends ProviderClass<WASocket> {
 
     protected beforeHttpServerInit(): void {
         this.server = this.server
-            .use((req, _, next) => {
+            .use((req: any, _: any, next: () => any) => {
                 req['globalVendorArgs'] = this.globalVendorArgs
                 return next()
             })
@@ -147,7 +151,35 @@ class BaileysProvider extends ProviderClass<WASocket> {
                 syncFullHistory: false,
                 markOnlineOnConnect: false,
                 generateHighQualityLinkPreview: true,
-                getMessage: this.getMessage,
+                getMessage: async (key: { remoteJid: string; id: string }) =>
+                    (await this.getMessage(key)) as Promise<proto.IMessage>,
+                retryRequestDelayMs: 350,
+                maxMsgRetryCount: 4,
+                connectTimeoutMs: 20_000,
+                keepAliveIntervalMs: 30_000,
+                shouldIgnoreJid: (jid: string) => {
+                    const isGroupJid = this.globalVendorArgs.groupsIgnore && isJidGroup(jid)
+                    const isBroadcast = !this.globalVendorArgs.readStatus && isJidBroadcast(jid)
+                    return isGroupJid || isBroadcast
+                },
+                patchMessageBeforeSending: (message: {
+                    deviceSentMessage: { message: { listMessage: { listType: proto.Message.ListMessage.ListType } } }
+                    listMessage: { listType: proto.Message.ListMessage.ListType }
+                }) => {
+                    if (
+                        message.deviceSentMessage?.message?.listMessage?.listType ===
+                        proto.Message.ListMessage.ListType.PRODUCT_LIST
+                    ) {
+                        message = JSON.parse(JSON.stringify(message))
+                        message.deviceSentMessage.message.listMessage.listType =
+                            proto.Message.ListMessage.ListType.SINGLE_SELECT
+                    }
+                    if (message.listMessage?.listType == proto.Message.ListMessage.ListType.PRODUCT_LIST) {
+                        message = JSON.parse(JSON.stringify(message))
+                        message.listMessage.listType = proto.Message.ListMessage.ListType.SINGLE_SELECT
+                    }
+                    return message
+                },
                 ...this.globalVendorArgs,
             })
 
@@ -245,9 +277,24 @@ class BaileysProvider extends ProviderClass<WASocket> {
     protected busEvents = (): { event: keyof BaileysEventMap; func: (arg?: any, arg2?: any) => any }[] => [
         {
             event: 'messages.upsert',
-            func: (argFromProvider) => {
+            func: async (argFromProvider) => {
                 const { messages, type } = argFromProvider as { type: MessageUpsertType; messages: WAMessage[] }
                 if (type !== 'notify') return
+
+                const pingMessageSync = async (_messageCtx: proto.IWebMessageInfo) => {
+                    if (!this.mapSet.has(_messageCtx?.key?.remoteJid)) {
+                        try {
+                            this.mapSet.add(_messageCtx?.key?.remoteJid)
+                            const jid = _messageCtx?.key?.remoteJid
+
+                            await this.vendor.readMessages([_messageCtx?.key])
+                            await this.vendor.sendMessage(jid, { text: this.globalVendorArgs.experimentalSyncMessage })
+                        } catch (e) {
+                            logger.log(e)
+                        }
+                    }
+                }
+
                 const [messageCtx] = messages
 
                 if (messageCtx?.messageStubParameters?.length && messageCtx.messageStubParameters[0].includes('absent'))
@@ -265,13 +312,21 @@ class BaileysProvider extends ProviderClass<WASocket> {
                 if (
                     messageCtx?.messageStubParameters?.length &&
                     messageCtx.messageStubParameters[0].includes('Invalid')
-                )
+                ) {
+                    if (
+                        this.globalVendorArgs.experimentalSyncMessage &&
+                        this.globalVendorArgs.experimentalSyncMessage.length
+                    ) {
+                        await pingMessageSync(messageCtx)
+                    }
                     return
-                // if (messageCtx?.message?.protocolMessage?.type === 'EPHEMERAL_SETTING') return
+                }
+                // if (((messageCtx?.message?.protocolMessage?.type) as unknown as string) === 'EPHEMERAL_SETTING') return
 
-              const textToBody = messageCtx?.message?.ephemeralMessage?.message?.extendedTextMessage?.text 
-                 ?? messageCtx?.message?.extendedTextMessage?.text
-                 ?? messageCtx?.message?.conversation;
+                const textToBody =
+                    messageCtx?.message?.ephemeralMessage?.message?.extendedTextMessage?.text ??
+                    messageCtx?.message?.extendedTextMessage?.text ??
+                    messageCtx?.message?.conversation
 
                 // if (idWs) this.idsDuplicates.push(idWs)
 
@@ -386,6 +441,15 @@ class BaileysProvider extends ProviderClass<WASocket> {
                                 pollUpdates: update.pollUpdates,
                             })
                             const [messageCtx] = message
+
+                            if (
+                                !messageCtx ||
+                                !messageCtx.update ||
+                                !messageCtx.update.pollUpdates ||
+                                messageCtx.update.pollUpdates.length === 0
+                            ) {
+                                continue
+                            }
 
                             const messageOriginalKey = messageCtx?.update?.pollUpdates[0]?.pollUpdateMessageKey
                             const messageOriginal = await this.store?.loadMessage(
@@ -538,7 +602,7 @@ class BaileysProvider extends ProviderClass<WASocket> {
             ],
         })
         const numberClean = baileyCleanNumber(number)
-        const templateButtons = buttons.map((btn: { body }, i: any) => ({
+        const templateButtons = buttons.map((btn: { body: any }, i: any) => ({
             buttonId: `id-btn-${i}`,
             buttonText: { displayText: btn.body },
             type: 1,
